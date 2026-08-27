@@ -1,4 +1,4 @@
-name: Docker Build & Deploy
+name: Test, Build & Deploy
 
 on:
   push:
@@ -6,28 +6,32 @@ on:
       - main
 
 jobs:
-  Build-and-Deploy:
-    runs-on: self-hosted
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements-dev.txt
+      - name: Run tests
+        env:
+          GEMINI_API_KEY: "test-key-not-real"
+          ITINERARY_PDF_PATH: "tests/fixtures/sample_itinerary.pdf"
+        run: pytest -v
 
+  build-and-deploy:
+    needs: test
+    runs-on: self-hosted
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Verify Docker Permissions
-        run: |
-          ls -l /var/run/docker.sock
-          groups
-          whoami
-          docker ps
-      
-      - name: Build Docker Image
-        run: |
-          docker build -t streamlit-app \
-            --build-arg OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
-            --build-arg WEATHER_API_KEY="${{ secrets.WEATHER_API_KEY }}" \
-            --build-arg SERPER_API_KEY="${{ secrets.SERPER_API_KEY }}" \
-            --build-arg AMADEUS_API_KEY="${{ secrets.AMADEUS_API_KEY }}" \
-            --build-arg AMADEUS_API_SECRET="${{ secrets.AMADEUS_API_SECRET }}" .
+      - name: Build Docker image
+        run: docker build -t cbot-app:${{ github.sha }} .
+        # NOTE: no --build-arg secrets here on purpose. Secrets are injected
+        # at container run time only (see the `docker run -e ...` step
+        # below), never baked into the image layers.
 
       - name: Authenticate to AWS ECR
         uses: aws-actions/configure-aws-credentials@v4
@@ -39,24 +43,32 @@ jobs:
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Push Docker Image to ECR
+      - name: Push Docker image to ECR
         run: |
-          docker tag streamlit-app:latest ${{ secrets.AWS_ECR_REPO_URI }}:latest
+          docker tag cbot-app:${{ github.sha }} ${{ secrets.AWS_ECR_REPO_URI }}:${{ github.sha }}
+          docker tag cbot-app:${{ github.sha }} ${{ secrets.AWS_ECR_REPO_URI }}:latest
+          docker push ${{ secrets.AWS_ECR_REPO_URI }}:${{ github.sha }}
           docker push ${{ secrets.AWS_ECR_REPO_URI }}:latest
 
-      - name: Deploy to EC2
+      - name: Deploy to EC2 and verify health
         run: |
           echo "${{ secrets.SSH_KEY }}" > ssh_key
           chmod 600 ssh_key
-          ssh -i ssh_key -o StrictHostKeyChecking=no ubuntu@44.203.254.197 \
-            'docker pull ${{ secrets.AWS_ECR_REPO_URI }}:latest && \
-             docker stop streamlit-app || true && \
-             docker rm streamlit-app || true && \
-             docker run -d --name streamlit-app \
-             -e OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
-             -e WEATHER_API_KEY="${{ secrets.WEATHER_API_KEY }}" \
-             -e SERPER_API_KEY="${{ secrets.SERPER_API_KEY }}" \
-             -e AMADEUS_API_KEY="${{ secrets.AMADEUS_API_KEY }}" \
-             -e AMADEUS_API_SECRET="${{ secrets.AMADEUS_API_SECRET }}" \
-             -p 8501:8501 ${{ secrets.AWS_ECR_REPO_URI }}:latest'
+          ssh -i ssh_key -o StrictHostKeyChecking=no ubuntu@${{ secrets.DEPLOY_HOST }} '
+            docker pull ${{ secrets.AWS_ECR_REPO_URI }}:latest &&
+            docker stop cbot-app || true &&
+            docker rm cbot-app || true &&
+            docker run -d --name cbot-app --restart unless-stopped \
+              -e GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}" \
+              -e REDIS_URL="${{ secrets.REDIS_URL }}" \
+              -e WHATSAPP_TOKEN="${{ secrets.WHATSAPP_TOKEN }}" \
+              -e WHATSAPP_PHONE_ID="${{ secrets.WHATSAPP_PHONE_ID }}" \
+              -e WHATSAPP_VERIFY_TOKEN="${{ secrets.WHATSAPP_VERIFY_TOKEN }}" \
+              -e WHATSAPP_APP_SECRET="${{ secrets.WHATSAPP_APP_SECRET }}" \
+              -e ALLOWED_ORIGINS="${{ secrets.ALLOWED_ORIGINS }}" \
+              -e ENVIRONMENT="production" \
+              -p 8000:8000 ${{ secrets.AWS_ECR_REPO_URI }}:latest &&
+            sleep 5 &&
+            curl --fail http://localhost:8000/healthz || (docker logs cbot-app && exit 1)
+          '
           rm ssh_key
