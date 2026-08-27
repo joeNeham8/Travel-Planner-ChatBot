@@ -1,6 +1,15 @@
-taskflowai
+# --- Core AI & Environment ---
+google-genai
 python-dotenv
+
+# --- Itinerary File Parsers ---
+PyMuPDF
+python-docx
+
+# --- Web & API Integration,  fastapi & uvicorn ---
+requests
 streamlit
-ipykernel
+
+# --- Project Utilities ---
 from_root
 -e .
