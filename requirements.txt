@@ -1,15 +1,28 @@
-# --- Core AI & Environment ---
-google-genai
-python-dotenv
+# --- Web framework ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+anyio==4.7.0
+slowapi==0.1.9
 
-# --- Itinerary File Parsers ---
-PyMuPDF
-python-docx
+# --- Config & validation ---
+pydantic==2.10.4
+pydantic-settings==2.7.1
+python-dotenv==1.0.1
 
-# --- Web & API Integration,  fastapi & uvicorn ---
-requests
-streamlit
+# --- Core AI ---
+google-genai==1.2.0
 
-# --- Project Utilities ---
-from_root
+# --- Itinerary file parsing ---
+PyMuPDF==1.25.1
+python-docx==1.1.2
+
+# --- WhatsApp / outbound HTTP ---
+requests==2.32.3
+
+# --- Session store ---
+redis==5.2.1
+
+# --- Project utilities ---
+from_root==1.3.0
+
 -e .

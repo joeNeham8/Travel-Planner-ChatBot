@@ -1,28 +1,27 @@
-FROM python:3.10-slim
+FROM python:3.11-slim
 
 WORKDIR /app
 
+# Install deps first for better layer caching
+COPY requirements.txt setup.py ./
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
+
 COPY . .
 
-# Install dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# NOTE: no ARG/ENV secrets baked into the image. All secrets (GEMINI_API_KEY,
+# WHATSAPP_TOKEN, etc.) are injected at container RUN time via `-e` / your
+# orchestrator's secret manager — never at build time, since build-time ENV
+# values persist in the image layer history and are extractable.
 
-# Define build arguments
-ARG OPENAI_API_KEY
-ARG WEATHER_API_KEY
-ARG SERPER_API_KEY
-ARG AMADEUS_API_KEY
-ARG AMADEUS_API_SECRET
+RUN useradd --create-home --shell /bin/bash appuser \
+    && mkdir -p /app/log /app/data \
+    && chown -R appuser:appuser /app
+USER appuser
 
-# Set environment variables from build arguments
-ENV OPENAI_API_KEY=${OPENAI_API_KEY}
-ENV WEATHER_API_KEY=${WEATHER_API_KEY}
-ENV SERPER_API_KEY=${SERPER_API_KEY}
-ENV AMADEUS_API_KEY=${AMADEUS_API_KEY}
-ENV AMADEUS_API_SECRET=${AMADEUS_API_SECRET}
+EXPOSE 8000
 
-# Expose the port Streamlit uses
-EXPOSE 8501
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')" || exit 1
 
-# Run Streamlit app
-CMD ["streamlit", "run", "deployment/app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+CMD ["uvicorn", "deployment.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

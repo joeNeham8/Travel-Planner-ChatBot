@@ -162,3 +162,7 @@ cython_debug/
 #.idea/
 venv/*
 .env.example.sh
+# Project-specific
+data/*.db
+log/*.log
+.env
