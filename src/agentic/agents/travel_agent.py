@@ -66,7 +66,7 @@ RULES:
 
 
 class TravelIntakeAgent:
-    def __init__(self, itinerary_path: str, api_key: str, model: str = "gemini-2.5-flash"):
+    def __init__(self, itinerary_path: str, api_key: str, model: str = "gemini-3.6-flash"):
         self.model = model
         self.client = genai.Client(api_key=api_key)
         # Loaded once at process startup, not per-message — this used to be
